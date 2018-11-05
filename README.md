@@ -2,7 +2,6 @@
 
 convert color image to vector graphics, based heavily on potrace and Imagemagick
 
-![](examples/logo.jpeg)
+<img src="https://raw.githubusercontent.com/arnehilmann/coltrace/master/examples/logo.jpeg" width="200px"/>
 
-![](examples/logo.color.svg)
-
+<img src="https://raw.githubusercontent.com/arnehilmann/coltrace/master/examples/logo.color.svg" width="200px"/>
