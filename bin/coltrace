@@ -1,0 +1,163 @@
+#!/bin/bash
+set -e -E -u
+
+IN=${1:?no INPUT image given?!}
+NR_COLORS=${2:-5}
+WIDTH=${3:-24cm}
+RENDER_COLOR=true
+
+NAME=$(basename ${IN%%.*})
+DEBUG=true
+OUT_DIR=out/$NAME
+
+MKBITMAP_ARGS=$(cat <<MKBITMAP_ARGS
+    -n
+    -b 2
+    -t 0.7
+MKBITMAP_ARGS
+)
+
+POTRACE_ARGS=$(cat <<POTRACE_ARGS
+    --svg
+    --alphamax 1
+    --opttolerance 0.1
+    --unit 10
+    --longcurve
+    --group
+    --flat
+    -W $WIDTH
+POTRACE_ARGS
+)
+
+# convert -density 300 $IN $OUT
+CONVERT_COLOR_ARGS=$(cat <<CONVERT_COLOR_ARGS
+    -dither NONE
+    -fuzz 20% -fill white -opaque white -fuzz 20% -fill black -opaque #808080 -posterize 2
+CONVERT_COLOR_ARGS
+)
+    # -fill white -fuzz 20% -opaque white -posterize 3 -fill black -opaque #808080
+    # -fill white -fuzz 20% -opaque white -posterize 3
+    # for logo: -fill white -fuzz 40% -opaque white -posterize 2
+    # -fill white -fuzz 10% -opaque white -normalize -colors $NR_COLORS -fill white -fuzz 10% -opaque white
+    # -normalize -colors $NR_COLORS -fill white -fuzz 10% -opaque white
+    # -colors 8 -fill white -fuzz 10% -opaque white
+    # -posterize 3
+    # -dither FloydSteinberg
+    # -dither NONE
+    # -colors 5
+    # -posterize 2
+
+gsed --version &> /dev/null && { alias sed=$(which gsed) && shopt -s expand_aliases; }
+sed -u q < /dev/null 2> /dev/null || \
+    { echo "your 'sed' command is posix-only! when on MacOS please 'brew install gnu-sed'."; exit 1; }
+
+echo "creating output folder $OUT_DIR"
+mkdir -p $OUT_DIR && rm -rf $OUT_DIR/*
+cp $IN $OUT_DIR/
+
+echo "starting: black/white svg"
+{
+    convert $IN -normalize $OUT_DIR/$NAME.bmp
+    mkbitmap $MKBITMAP_ARGS -o $OUT_DIR/$NAME.2.bmp $OUT_DIR/$NAME.bmp
+    potrace $POTRACE_ARGS -o "$OUT_DIR/$NAME.svg" "$OUT_DIR/$NAME.2.bmp"
+    echo "finished: black/white svg"
+} &
+
+
+if $RENDER_COLOR; then
+    echo "starting: color svg"
+    convert $IN $CONVERT_COLOR_ARGS $OUT_DIR/$NAME.color.png
+    [[ $DEBUG ]] && convert $OUT_DIR/$NAME.color.png -unique-colors $OUT_DIR/$NAME.colorscale.png
+    while read COLOR; do
+        [[ $COLOR = "FFFFFF" ]] && continue
+        {
+            convert $OUT_DIR/$NAME.color.png -fill "#123456" -opaque "#$COLOR" -fill white +opaque "#123456" -fill black -opaque "#123456" $OUT_DIR/color-$COLOR.bmp
+            [[ $DEBUG ]] && convert $OUT_DIR/color-$COLOR.bmp $OUT_DIR/color-$COLOR.png
+            mkbitmap $MKBITMAP_ARGS -o $OUT_DIR/color-$COLOR.2.bmp $OUT_DIR/color-$COLOR.bmp
+            [[ $DEBUG ]] && convert $OUT_DIR/color-$COLOR.2.bmp $OUT_DIR/color-$COLOR.2.png
+            HISTOGRAM=$(convert $OUT_DIR/color-$COLOR.2.bmp -format "%c" histogram:info:-)
+            WHITE_COUNT=$(sed -n "/#FFFFFF/s/:.*//;T;p" <<<"$HISTOGRAM")
+            INK_COUNT=$(sed -n "/#000000/s/:.*//;T;p" <<<"$HISTOGRAM")
+            : ${WHITE_COUNT:=1} ${INK_COUNT:=0}
+            INK_RATIO=$(($INK_COUNT / 100))
+            if [[ $INK_RATIO -gt 2 ]]; then
+                potrace $POTRACE_ARGS -o "$OUT_DIR/color-$COLOR.svg" "$OUT_DIR/color-$COLOR.2.bmp"
+                sed -i 's/fill="#000000"/fill="#'$COLOR'"/' "$OUT_DIR/color-$COLOR.svg"
+                printf "color $COLOR - ink ratio: %4s\n" ${INK_RATIO}
+            else
+                printf "color $COLOR - ink ratio: %4s, empty\n" ${INK_RATIO}
+            fi
+        } &
+    done < <(convert $OUT_DIR/$NAME.color.png -unique-colors txt:- | sed "1d; s/.*#//; s/ .*//")
+fi
+wait
+
+if $RENDER_COLOR; then
+    echo "merging color svg"
+    HEADER_MISSING=true
+    while read SVG; do
+        if $HEADER_MISSING; then
+            HEADER_MISSING=false
+            sed -n "1,/<\/metadata>/p" $SVG
+        fi
+        sed "1,/<\/metadata>/d;/<\/svg>/d" $SVG
+    done < <(grep -L empty $OUT_DIR/color-*.svg | sort -r) > $OUT_DIR/$NAME.color.svg
+    echo "</svg>" >> $OUT_DIR/$NAME.color.svg
+fi
+
+
+echo
+echo "result"
+echo
+du -k $IN $OUT_DIR/$NAME.*svg
+
+cat << INDEX_HTML > $OUT_DIR/index.html
+<html>
+    <body style="background: white;">
+        <img src="$(basename $IN)" width="600px">
+        <img src="$NAME.svg" width="600px">
+        <img src="$NAME.color.svg" width="600px">
+        <hr/>
+        <img src="$(basename $IN)" width="2400px">
+        <img src="$NAME.color.svg" width="2400px">
+    </body>
+</html>
+INDEX_HTML
+
+if $DEBUG; then
+    cat << DEBUG_HTML_HEADER > $OUT_DIR/debug.html
+<html>
+    <body style="background: lightgrey;">
+        <img src="$(basename $IN)" width="600px">
+        <hr/>
+        <img src="$NAME.color.svg" width="600px">
+        <hr/>
+        <img src="$NAME.color.png" width="600px">
+        <img src="$NAME.colorscale.png" height="20px" style="image-rendering: pixelated;">
+        <hr/>
+DEBUG_HTML_HEADER
+
+    for COLOR_FILE in $OUT_DIR/color-*.svg; do
+        COLOR=$(basename $COLOR_FILE .svg)
+        COLOR=${COLOR##color-}
+        cat << DEBUG_COLOR >> $OUT_DIR/debug.html
+        <div>
+            <span style="background: #$COLOR">$COLOR</span>
+            <img src="color-$COLOR.png" width="300px">
+            <img src="color-$COLOR.2.png" width="300px">
+            <img src="color-$COLOR.svg" width="300px">
+        </div>
+DEBUG_COLOR
+    done
+
+    cat << DEBUG_HTML_FOOTER >> $OUT_DIR/debug.html
+    </body>
+</html>
+DEBUG_HTML_FOOTER
+fi
+
+
+echo
+echo "    open $OUT_DIR/index.html"
+[[ $DEBUG ]] && echo "    open $OUT_DIR/debug.html"
+echo
