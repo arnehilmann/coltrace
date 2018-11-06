@@ -2,12 +2,12 @@
 set -e -E -u
 
 IN=${1:?no INPUT image given?!}
-NR_COLORS=${2:-5}
+POSTERIZE=${2:-3}
 WIDTH=${3:-24cm}
-RENDER_COLOR=true
+
+: ${RENDER_COLOR:=true} ${DEBUG:=true}
 
 NAME=$(basename ${IN%%.*})
-DEBUG=true
 OUT_DIR=out/$NAME
 
 MKBITMAP_ARGS=$(cat <<MKBITMAP_ARGS
@@ -32,7 +32,7 @@ POTRACE_ARGS
 # convert -density 300 $IN $OUT
 CONVERT_COLOR_ARGS=$(cat <<CONVERT_COLOR_ARGS
     -dither NONE
-    -fuzz 20% -fill white -opaque white -fuzz 20% -fill black -opaque #808080 -posterize 2
+    -fuzz 20% -fill white -opaque white -fuzz 20% -fill black -opaque #808080 -posterize $POSTERIZE
 CONVERT_COLOR_ARGS
 )
     # -fill white -fuzz 20% -opaque white -posterize 3 -fill black -opaque #808080
