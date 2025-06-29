@@ -29,7 +29,7 @@ POTRACE_ARGS=$(cat <<POTRACE_ARGS
 POTRACE_ARGS
 )
 
-# convert -density 300 $IN $OUT
+# magick -density 300 $IN $OUT
 CONVERT_COLOR_ARGS=$(cat <<CONVERT_COLOR_ARGS
     -dither NONE
     -fuzz 20% -fill white -opaque white -fuzz 20% -fill black -opaque #808080 -posterize $POSTERIZE
@@ -57,7 +57,7 @@ cp $IN $OUT_DIR/
 
 echo "starting: black/white svg"
 {
-    convert $IN -normalize $OUT_DIR/$NAME.bmp
+    magick $IN -normalize $OUT_DIR/$NAME.bmp
     mkbitmap $MKBITMAP_ARGS -o $OUT_DIR/$NAME.2.bmp $OUT_DIR/$NAME.bmp
     potrace $POTRACE_ARGS -o "$OUT_DIR/$NAME.svg" "$OUT_DIR/$NAME.2.bmp"
     echo "finished: black/white svg"
@@ -66,16 +66,16 @@ echo "starting: black/white svg"
 
 if $RENDER_COLOR; then
     echo "starting: color svg"
-    convert $IN $CONVERT_COLOR_ARGS $OUT_DIR/$NAME.color.png
-    [[ $DEBUG ]] && convert $OUT_DIR/$NAME.color.png -unique-colors $OUT_DIR/$NAME.colorscale.png
+    magick $IN $CONVERT_COLOR_ARGS $OUT_DIR/$NAME.color.png
+    [[ $DEBUG ]] && magick $OUT_DIR/$NAME.color.png -unique-colors $OUT_DIR/$NAME.colorscale.png
     while read COLOR; do
         [[ $COLOR = "FFFFFF" ]] && continue
         {
-            convert $OUT_DIR/$NAME.color.png -fill "#123456" -opaque "#$COLOR" -fill white +opaque "#123456" -fill black -opaque "#123456" $OUT_DIR/color-$COLOR.bmp
-            [[ $DEBUG ]] && convert $OUT_DIR/color-$COLOR.bmp $OUT_DIR/color-$COLOR.png
+            magick $OUT_DIR/$NAME.color.png -fill "#123456" -opaque "#$COLOR" -fill white +opaque "#123456" -fill black -opaque "#123456" $OUT_DIR/color-$COLOR.bmp
+            [[ $DEBUG ]] && magick $OUT_DIR/color-$COLOR.bmp $OUT_DIR/color-$COLOR.png
             mkbitmap $MKBITMAP_ARGS -o $OUT_DIR/color-$COLOR.2.bmp $OUT_DIR/color-$COLOR.bmp
-            [[ $DEBUG ]] && convert $OUT_DIR/color-$COLOR.2.bmp $OUT_DIR/color-$COLOR.2.png
-            HISTOGRAM=$(convert $OUT_DIR/color-$COLOR.2.bmp -format "%c" histogram:info:-)
+            [[ $DEBUG ]] && magick $OUT_DIR/color-$COLOR.2.bmp $OUT_DIR/color-$COLOR.2.png
+            HISTOGRAM=$(magick $OUT_DIR/color-$COLOR.2.bmp -format "%c" histogram:info:-)
             WHITE_COUNT=$(sed -n "/#FFFFFF/s/:.*//;T;p" <<<"$HISTOGRAM")
             INK_COUNT=$(sed -n "/#000000/s/:.*//;T;p" <<<"$HISTOGRAM")
             : ${WHITE_COUNT:=1} ${INK_COUNT:=0}
@@ -88,7 +88,7 @@ if $RENDER_COLOR; then
                 printf "color $COLOR - ink ratio: %4s, empty\n" ${INK_RATIO}
             fi
         } &
-    done < <(convert $OUT_DIR/$NAME.color.png -unique-colors txt:- | sed "1d; s/.*#//; s/ .*//")
+    done < <(magick $OUT_DIR/$NAME.color.png -unique-colors txt:- | sed "1d; s/.*#//; s/ .*//")
 fi
 wait
 
@@ -113,10 +113,17 @@ du -k $IN $OUT_DIR/$NAME.*svg
 
 cat << INDEX_HTML > $OUT_DIR/index.html
 <html>
-    <body style="background: white;">
+    <style>
+    body { background: white; }
+    img { border: 1px solid lightgrey; }
+    </style>
+    <body>
         <img src="$(basename $IN)" width="600px">
+        $(basename $IN)<br/>
         <img src="$NAME.svg" width="600px">
+        $NAME.svg<br/>
         <img src="$NAME.color.svg" width="600px">
+        $NAME.color.svg<br/>
         <hr/>
         <img src="$(basename $IN)" width="2400px">
         <img src="$NAME.color.svg" width="2400px">
